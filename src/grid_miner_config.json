@@ -1,0 +1,5 @@
+{
+    "mode": "running",
+    "close_when_sig_int": "false",
+    "dump_trading_pair": "false"
+}
