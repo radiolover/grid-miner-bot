@@ -15,7 +15,6 @@ import { CetusClmmSDK, Pool, Position, AddLiquidityFixTokenParams, AddLiquidityP
     FetchPosRewardParams, FetchPosFeeParams, CollectFeesQuote, PosRewarderResult} from '@cetusprotocol/sui-clmm-sdk';
 import { AggregatorClient, RouterData } from "@cetusprotocol/aggregator-sdk";
 
-
 import { NumberLiteralType } from 'typescript';
 
 
@@ -179,7 +178,7 @@ const HD_WALLET_PATH = 'm\/44\'\/784\'\/0\'\/0\'\/0\'';
 
 
 const date = new Date();
-const LOG_FILE_NAME = 'log_file_name_' + date.toISOString() + '.log';
+const LOG_FILE_NAME = 'log_object_dump_' + date.toISOString() + '.log';
 
 function dumpSDKRet2Logfile(title: string, context: string) {
     date.setTime(Date.now())
@@ -220,8 +219,8 @@ const USDC_RESERVED = new BN('1').mul(new BN('1000000')); // 1 usdc
 const SLIPPAGE_AGGREGATOR_SWAP = 0.05
 const SLIPPAGE_FOR_ADD_LIQUIDITY = 0.05
 
-
-let COIN_B_AMOUNT_EACH_GRID: BN = new BN(13 * 1000000000); // 15 sui upper bounder
+let COIN_A_AMOUNT_EACH_GRID: BN = new BN(43 * 1000000); // lower boundary
+let COIN_B_AMOUNT_EACH_GRID: BN = new BN(13 * 1000000000); // upper boundary
 
 let GRID_AMOUNT_MAX: number = 9;
 
@@ -801,19 +800,30 @@ function estLiquidityInfo(tick_lower_index: number, tick_upper_index: number, fi
 
 
     if (fix_amount_a) {
-        coin_amount_lower_side = {
-            coin_amount_a: coin_amount,
-            coin_amount_b: '0'
-        };
-        const liquidity = ClmmPoolUtil.estimateLiquidityFromCoinAmounts(
-            TickMath.tickIndexToSqrtPriceX64(tick_lower_index),
+        // coin_amount_lower_side = {
+        //     coin_amount_a: coin_amount.toString(),
+        //     coin_amount_b: '0'
+        // };
+
+        const liquidity_input = ClmmPoolUtil.estLiquidityAndCoinAmountFromOneAmounts(
             tick_lower_index,
             tick_upper_index,
-            coin_amount_lower_side
+            new BN(coin_amount),
+            fix_amount_a,
+            true,
+            0,
+            TickMath.tickIndexToSqrtPriceX64(tick_lower_index)
         );
-        ret.liquidity = liquidity;
+        // const liquidity = ClmmPoolUtil.estimateLiquidityFromCoinAmounts(
+        //     TickMath.tickIndexToSqrtPriceX64(tick_lower_index),
+        //     tick_lower_index,
+        //     tick_upper_index,
+        //     coin_amount_lower_side
+        // );
+
+        ret.liquidity = liquidity_input.liquidity_amount;
         coin_amount_upper_side = ClmmPoolUtil.getCoinAmountFromLiquidity(
-            new BN(liquidity),
+            new BN(liquidity_input.liquidity_amount),
             TickMath.tickIndexToSqrtPriceX64(tick_upper_index),
             TickMath.tickIndexToSqrtPriceX64(tick_lower_index),
             TickMath.tickIndexToSqrtPriceX64(tick_upper_index),
@@ -824,20 +834,29 @@ function estLiquidityInfo(tick_lower_index: number, tick_upper_index: number, fi
 
 
     } else {
-        coin_amount_upper_side = {
-            coin_amount_a: '0',
-            coin_amount_b: coin_amount.toString()
-        };
-        const liquidity = ClmmPoolUtil.estimateLiquidityFromCoinAmounts(
-            TickMath.tickIndexToSqrtPriceX64(tick_upper_index),
+        // coin_amount_upper_side = {
+        //     coin_amount_a: '0',
+        //     coin_amount_b: coin_amount.toString()
+        // };
+        const liquidity_input = ClmmPoolUtil.estLiquidityAndCoinAmountFromOneAmounts(
             tick_lower_index,
             tick_upper_index,
-            coin_amount_upper_side
+            new BN(coin_amount),
+            fix_amount_a,
+            true,
+            0,
+            TickMath.tickIndexToSqrtPriceX64(tick_upper_index)
         );
-        ret.liquidity = liquidity;
+        // const liquidity = ClmmPoolUtil.estimateLiquidityFromCoinAmounts(
+        //     TickMath.tickIndexToSqrtPriceX64(tick_upper_index),
+        //     tick_lower_index,
+        //     tick_upper_index,
+        //     coin_amount_upper_side
+        // );
+        ret.liquidity = liquidity_input.liquidity_amount;
 
         coin_amount_lower_side = ClmmPoolUtil.getCoinAmountFromLiquidity(
-            new BN(liquidity),
+            new BN(liquidity_input.liquidity_amount),
             TickMath.tickIndexToSqrtPriceX64(tick_lower_index),
             TickMath.tickIndexToSqrtPriceX64(tick_lower_index),
             TickMath.tickIndexToSqrtPriceX64(tick_upper_index),
@@ -1176,6 +1195,7 @@ function initPositionRunningCtx(tick_lower_index: number, tick_upper_index: numb
     ret.tick_upper_index = tick_upper_index;    
 
     let liquidity_info = estLiquidityInfo(tick_lower_index, tick_upper_index, fix_amount_a, coin_amount);
+    console.log('initPositionRunningCtx: estLiquidityInfo', liquidity_info);
     ret.coin_a_amount_lower_est = new BN(liquidity_info.coin_a_amount_lower);
     ret.coin_b_amount_lower_est = new BN(0);
     ret.coin_a_amount_upper_est = new BN(0);
@@ -1383,9 +1403,11 @@ type GridActionCtx = {
     action_type: number;
     tick_lower_index: number;
     tick_upper_index: number;
+    supposed_tick: number;
     grid_trading_pair_ctx: GridTradingPairCtx;
     cancel_out_action_idx: number;
     cancel_out_action_reference_position_ctx: PositionRunningCtx | undefined;
+    removed: boolean;
 };
 
 function getGridActionCtxStr(id: number): string {
@@ -1825,6 +1847,7 @@ type GridMinerConfig = {
     close_when_sig_int: string;
     dump_trading_pair: string;
     grid_amount_max: string;
+    liquidity_in_usdc: string;
     liquidity_in_sui: string;
 };
 
@@ -1834,6 +1857,7 @@ function newMinerConfig(): GridMinerConfig {
         close_when_sig_int: 'false',
         dump_trading_pair: 'false',
         grid_amount_max: '9',
+        liquidity_in_usdc: '43000000',
         liquidity_in_sui: '13000000000'
     };
     return ret;
@@ -1865,6 +1889,83 @@ async function loadGridMinerConfig(): Promise<GridMinerConfig> {
 
 
 
+
+
+
+
+type GridAmountShrinkCtx = {
+    grid_amount_max: number;
+    grid_amount_max_new: number;
+    tick_of_current_position: number;
+    tick_range: number;
+    tick_of_lower_side_grid_boundary_position: number;
+    tick_of_upper_side_grid_boundary_position: number;
+    
+    tick_of_lower_side_grid_boundary_position_new: number;
+    tick_of_upper_side_grid_boundary_position_new: number;
+    grid_to_remove: Set<number>;
+};
+
+function resolveGridAmountShrinkCtx(ctx: GridAmountShrinkCtx) {
+
+    let current_grid_amount = (ctx.tick_of_upper_side_grid_boundary_position - ctx.tick_of_lower_side_grid_boundary_position) / ctx.tick_range + 1;
+    
+    if (ctx.grid_amount_max_new >= current_grid_amount || ctx.grid_amount_max_new < 3) {
+        return;
+    }
+
+    ctx.grid_to_remove.clear();
+    if (ctx.tick_of_current_position < ctx.tick_of_lower_side_grid_boundary_position) {
+        let tick_of_upper_side_grid_boundary_position_new = ctx.tick_of_lower_side_grid_boundary_position + ctx.tick_range * (ctx.grid_amount_max_new - 1);
+        for (let i = ctx.tick_of_upper_side_grid_boundary_position; i > tick_of_upper_side_grid_boundary_position_new; i -= ctx.tick_range) {
+            ctx.grid_to_remove.add(i);
+        }
+        ctx.tick_of_upper_side_grid_boundary_position_new = tick_of_upper_side_grid_boundary_position_new;
+    } else if (ctx.tick_of_current_position > ctx.tick_of_upper_side_grid_boundary_position) {
+        let tick_of_lower_side_grid_boundary_position_new = ctx.tick_of_upper_side_grid_boundary_position - ctx.tick_range * (ctx.grid_amount_max_new - 1);
+        for (let i = ctx.tick_of_lower_side_grid_boundary_position; i < tick_of_lower_side_grid_boundary_position_new; i += ctx.tick_range) {
+            ctx.grid_to_remove.add(i);
+        }
+        ctx.tick_of_lower_side_grid_boundary_position_new = tick_of_lower_side_grid_boundary_position_new;
+    } else {
+        let offset = 1;
+        let remain_count = 0;
+        for (let i = ctx.tick_of_lower_side_grid_boundary_position; i <= ctx.tick_of_upper_side_grid_boundary_position; i += ctx.tick_range) {
+            ctx.grid_to_remove.add(i);
+        }
+
+        let iter = ctx.tick_of_current_position;
+        ctx.grid_to_remove.delete(iter);
+        remain_count++;
+
+        let tick_of_lower_side_grid_boundary_position_new = iter;
+        let tick_of_upper_side_grid_boundary_position_new = iter;
+
+        while(true) {
+            iter = ctx.tick_of_current_position - ctx.tick_range * offset;
+            if (posInRange(iter, ctx.tick_of_lower_side_grid_boundary_position, ctx.tick_of_upper_side_grid_boundary_position)) {
+                ctx.grid_to_remove.delete(iter);
+                remain_count++;
+                tick_of_lower_side_grid_boundary_position_new = iter;
+                if (remain_count >= ctx.grid_amount_max_new) {
+                    break;
+                }
+            }
+            iter = ctx.tick_of_current_position + ctx.tick_range * offset;
+            if (posInRange(iter, ctx.tick_of_lower_side_grid_boundary_position, ctx.tick_of_upper_side_grid_boundary_position)) {
+                ctx.grid_to_remove.delete(iter);
+                remain_count++;
+                tick_of_upper_side_grid_boundary_position_new = iter;
+                if (remain_count >= ctx.grid_amount_max_new) {
+                    break;
+                }
+            }
+            offset++;
+        }
+        ctx.tick_of_upper_side_grid_boundary_position_new = tick_of_upper_side_grid_boundary_position_new;
+        ctx.tick_of_lower_side_grid_boundary_position_new = tick_of_lower_side_grid_boundary_position_new;
+    }
+}
 
 
 
@@ -1948,14 +2049,16 @@ async function main() {
     let total_util_gas_now = new BN(0);
     let total_util_gas_value_now = d(0);
 
+    let total_profit_removed: GridTradingPairProfit = newGridTradingPairProfit();
+    let total_grid_arbitrage_removed = d(0);
+    let grid_to_remove = new Set<number>();
 
 
-
-
+    // load GRID_AMOUNT_MAX
     let grid_miner_config = await loadGridMinerConfig();
-
-    if (GRID_AMOUNT_MAX < 3) {
-        console.log('[ERROR] GRID_AMOUNT_MAX is %d, must greater than or equal to 3', GRID_AMOUNT_MAX);
+    GRID_AMOUNT_MAX = Number(grid_miner_config.grid_amount_max);
+    if (!Number.isFinite(GRID_AMOUNT_MAX) || GRID_AMOUNT_MAX < 4) {
+        console.log('[ERROR] GRID_AMOUNT_MAX is %d, must greater than or equal to 4', GRID_AMOUNT_MAX);
         return;
     }
 
@@ -2062,8 +2165,11 @@ async function main() {
     let grid_info_upper_side_position: GridInfo | undefined = undefined;
 
     let grid_info_map = new Map<number, GridInfo>();
+    let grid_info_removed: (GridInfo | undefined) [] = [];
     let grid_trading_pair_ctx_map = new Map<string, GridTradingPairCtx>();
     let grid_action_ctx: GridActionCtx[] = [];
+
+    
 
 
     // get init status
@@ -2111,12 +2217,7 @@ async function main() {
         // if (cycle_count > 5) {
         //     break;
         // }
-
-
-
-        // load config and update
-
-        grid_miner_config = await loadGridMinerConfig();
+        
 
 
         date.setTime(Date.now())
@@ -2196,47 +2297,258 @@ async function main() {
         tick_of_lower_side_position = tick_of_current_position - tick_range;
         tick_of_upper_side_position = tick_of_current_position + tick_range;
 
+
+
+
+        // load config and update
+        grid_miner_config = await loadGridMinerConfig();
+
+        // resolve new COIN_A_AMOUNT_EACH_GRID
+        try {
+            let COIN_A_AMOUNT_EACH_GRID_NEW = new BN(grid_miner_config.liquidity_in_usdc);
+            if (!COIN_A_AMOUNT_EACH_GRID_NEW.eq(COIN_A_AMOUNT_EACH_GRID) && COIN_A_AMOUNT_EACH_GRID_NEW.gte(new BN('1000000'))) {                
+                console.log('COIN_A_AMOUNT_EACH_GRID_NEW changed from %s to %s', COIN_A_AMOUNT_EACH_GRID.toString(), COIN_A_AMOUNT_EACH_GRID_NEW.toString());
+                COIN_A_AMOUNT_EACH_GRID = COIN_A_AMOUNT_EACH_GRID_NEW.clone();
+            }
+        } catch (e) {
+            if (e instanceof Error) {
+                console.error('%s [error] Load COIN_A_AMOUNT_EACH_GRID_NEW get an error:\n%s \n%s \n%s', date.toLocaleString(), e.message, e.name, e.stack);
+            } else {
+                console.error('Load COIN_A_AMOUNT_EACH_GRID_NEW get an error'); 
+                console.error(e);
+            }
+        }
+
+        // resolve new COIN_B_AMOUNT_EACH_GRID
+        try {
+            let COIN_B_AMOUNT_EACH_GRID_NEW = new BN(grid_miner_config.liquidity_in_sui);
+            if (!COIN_B_AMOUNT_EACH_GRID_NEW.eq(COIN_B_AMOUNT_EACH_GRID) && COIN_B_AMOUNT_EACH_GRID_NEW.gte(new BN('1000000000'))) {                
+                console.log('COIN_B_AMOUNT_EACH_GRID changed from %s to %s', COIN_B_AMOUNT_EACH_GRID.toString(), COIN_B_AMOUNT_EACH_GRID_NEW.toString());
+                COIN_B_AMOUNT_EACH_GRID = COIN_B_AMOUNT_EACH_GRID_NEW.clone();
+            }
+        } catch (e) {
+            if (e instanceof Error) {
+                console.error('%s [error] Load COIN_B_AMOUNT_EACH_GRID_NEW get an error:\n%s \n%s \n%s', date.toLocaleString(), e.message, e.name, e.stack);
+            } else {
+                console.error('Load COIN_B_AMOUNT_EACH_GRID_NEW get an error'); 
+                console.error(e);
+            }
+        }
+
+        // resolve new GRID_AMOUNT_MAX
+        // let GRID_AMOUNT_MAX_NEW = Number(grid_miner_config.grid_amount_max);
+        // if (Number.isFinite(GRID_AMOUNT_MAX_NEW) && GRID_AMOUNT_MAX_NEW != GRID_AMOUNT_MAX && GRID_AMOUNT_MAX_NEW >= 3) {
+        //     console.log('GRID_AMOUNT_MAX changed from %d to %d', GRID_AMOUNT_MAX, GRID_AMOUNT_MAX_NEW);
+
+        //     let current_grid_amount = (tick_of_upper_side_grid_boundary_position - tick_of_lower_side_grid_boundary_position) / tick_range + 1;
+        //     if (GRID_AMOUNT_MAX_NEW < current_grid_amount) {
+        //         console.log('GRID_AMOUNT_MAX_NEW(%d) less than current grid amount(%d), need close position and update grid boundary', GRID_AMOUNT_MAX_NEW, current_grid_amount);
+        //         let grid_amount_change_ctx : GridAmountShrinkCtx = {
+        //             grid_amount_max: GRID_AMOUNT_MAX,
+        //             grid_amount_max_new: GRID_AMOUNT_MAX_NEW,
+        //             tick_of_current_position,
+        //             tick_range,
+        //             tick_of_lower_side_grid_boundary_position,
+        //             tick_of_upper_side_grid_boundary_position,
+        //             tick_of_lower_side_grid_boundary_position_new: 0,
+        //             tick_of_upper_side_grid_boundary_position_new: 0,
+        //             grid_to_remove: new Set<number>()
+        //         };
+
+        //         resolveGridAmountShrinkCtx(grid_amount_change_ctx);
+
+        //         tick_of_lower_side_grid_boundary_position = grid_amount_change_ctx.tick_of_lower_side_grid_boundary_position_new;
+        //         tick_of_upper_side_grid_boundary_position = grid_amount_change_ctx.tick_of_upper_side_grid_boundary_position_new;
+
+        //         if (grid_amount_change_ctx.grid_to_remove.size) {
+        //             grid_to_remove.clear();
+        //             for (const tick of grid_amount_change_ctx.grid_to_remove) {
+        //                 grid_to_remove.add(tick);
+        //             }
+        //         }
+        //     }
+        //     GRID_AMOUNT_MAX = GRID_AMOUNT_MAX_NEW;
+        // }
+
+
+        // if (grid_to_remove.size) {
+        //     for (const tick of grid_to_remove) {
+        //         if (grid_info_map.has(tick)) {
+        //             let ctx = grid_info_map.get(tick)!.grid_trading_pair_ctx;
+        //             if (ctx) {
+        //                 let position_ctx = ctx.state >= GridTradingPairState.BuyFinished ? ctx.sell_position_ctx : ctx.buy_position_ctx;
+        //                 console.log('= Close Position =: tick: %d, id: %s', tick, position_ctx.id);
+        //                 tx_info_arr = [];
+        //                 total_gas_fee_accumulate = new BN(0);                       
+
+        //                 while(true) {
+        //                     // close position
+        //                     let tx_rsp = await closePosition(pools_running[0], position_ctx.id, sendKeypair);
+
+        //                     if (tx_rsp == undefined) { // exception exceed retry times
+        //                         console.log('[error] Close Position: cetusClmmSDK.FullClient.sendTransaction exception exceed retry time, wait 2s and try again...');
+        //                         await new Promise(f => setTimeout(f, 2000));
+        //                         continue;
+        //                     }
+
+
+        //                     let digest_close_position = tx_rsp.digest;
+        //                     // get close transaction info
+        //                     tx_info_close_position = newTransactionInfo();
+        //                     let tx_opt_close_position: TransactionInfoQueryOptions = {
+        //                         get_total_gas_fee: true,
+        //                         get_balance_change: true,
+        //                         get_add_liquidity_event: false, 
+        //                         get_remove_liquidity_event: true,
+        //                         get_fee_and_rwd: true
+        //                     };
+
+        //                     await getTransactionInfo(digest_close_position, tx_info_close_position, tx_opt_close_position, sendKeypair);
+        //                     tx_info_close_position.type = 'close_position';
+
+        //                     tx_info_arr.push(cloneTransactionInfo(tx_info_close_position));
+
+        //                     total_gas_fee_accumulate.iadd(tx_info_close_position.total_gas_fee);
+        //                     console.log('total_gas_fee_accumulate: ', total_gas_fee_accumulate.toString());
+
+        //                     // dump close transaction info
+        //                     console.log('');
+        //                     dumpTransactionInfo('Close Position Transaction Rsp', tx_info_close_position, tx_opt_close_position);
+
+
+        //                     if (tx_rsp?.effects?.status.status !== "success") {
+        //                         console.log('[error] Close Position: cetusClmmSDK.FullClient.sendTransaction return failed, wait 2s and try again...');
+        //                         await new Promise(f => setTimeout(f, 2000));
+        //                         continue;
+        //                     }
+        //                     break;
+        //                 }
+
+        //                 // position_ctx.id = tx_info_add_liquidity.liquidity_event.position;
+        //                 // position_ctx.pair_ctx_id = grid_action.grid_trading_pair_ctx.id;
+        //                 // position_ctx.tick_lower_index = 
+        //                 // position_ctx.tick_upper_index = 
+
+        //                 // position_ctx.liquidity_actual = tx_info_add_liquidity.liquidity_event.after_liquidity.clone();
+        //                 for (const tx_info of tx_info_arr) {
+        //                     position_ctx.tx_info_grid_arr.push(cloneTransactionInfo(tx_info));
+        //                 }
+        //                 tx_info_arr_length_last = tx_info_arr.length;
+
+
+        //                 // let tick_when_add_liquidity = estAddCloseLiquidityTickIndex( position_ctx.tick_lower_index, position_ctx.tick_upper_index, tx_info_add_liquidity.liquidity_event, 1);
+        //                 // if (tick_when_add_liquidity <= position_ctx.tick_lower_index || tick_when_add_liquidity >= position_ctx.tick_upper_index) {
+        //                 //     tick_when_add_liquidity = await getCurrentTickIndex(POOL_ADDRESS);
+        //                 // }
+        //                 // position_ctx.tick_index_open = tick_when_add_liquidity;
+        //                 // position_ctx.coin_a_amount_open = tx_info_add_liquidity.liquidity_event.amount_a.clone();
+        //                 // position_ctx.coin_b_amount_open = tx_info_add_liquidity.liquidity_event.amount_b.clone();
+
+        //                 // let sui_price = d(1).div(TickMath.tickIndexToPrice(tick_when_add_liquidity, 6, 9));
+        //                 // position_ctx.liquidity_value_open = d(tx_info_add_liquidity.liquidity_event.amount_a.toString()).mul(Decimal.pow(10, -6)).add(
+        //                 //     d(tx_info_add_liquidity.liquidity_event.amount_b.toString()).mul(Decimal.pow(10, -9)).mul(sui_price)
+        //                 // );
+
+
+        //                 let tick_when_add_close_liquidity = estAddCloseLiquidityTickIndex( position_ctx.tick_lower_index, position_ctx.tick_upper_index, tx_info_close_position.liquidity_event, 0);
+        //                 if (tick_when_add_close_liquidity <= position_ctx.tick_lower_index || tick_when_add_close_liquidity >= position_ctx.tick_upper_index) {
+        //                     tick_when_add_close_liquidity = await getCurrentTickIndex(POOL_ADDRESS);
+        //                 }
+        //                 let sui_price = d(1).div(TickMath.tickIndexToPrice(tick_when_add_close_liquidity, 6, 9));
+
+        //                 // now                    
+        //                 position_ctx.tick_index_latest = tick_when_add_close_liquidity
+        //                 position_ctx.coin_a_amount_latest = tx_info_close_position.liquidity_event.amount_a.clone();
+        //                 position_ctx.coin_b_amount_latest = tx_info_close_position.liquidity_event.amount_b.clone();
+        //                 position_ctx.liquidity_value_latest = d(tx_info_close_position.liquidity_event.amount_a.toString()).mul(Decimal.pow(10, -6)).add(
+        //                     d(tx_info_close_position.liquidity_event.amount_b.toString()).mul(Decimal.pow(10, -9)).mul(sui_price)
+        //                 );
+                        
+        //                 position_ctx.total_gas_latest.iadd(total_gas_fee_accumulate);
+        //                 let value_plus = position_ctx.total_gas_value_latest.add(d(total_gas_fee_accumulate.toString()).mul(Decimal.pow(10, -9)).mul(sui_price));
+        //                 position_ctx.total_gas_value_latest = value_plus; // approximately
+
+                        
+        //                 position_ctx.fee_and_reward_latest = cloneFeeAndReward(tx_info_close_position.fee_and_reward);
+
+        //                 let cetus_tick_when_add_close_liquidity = await getCurrentTickIndex(POOL_ADDRESS_FOR_FEE);
+        //                 let cetus_price = d(1).div(TickMath.tickIndexToPrice(cetus_tick_when_add_close_liquidity, 6, 9));
+        //                 let final_fee_and_reward_value_when_close = getFeeAndRewardValue(sui_price, cetus_price, tx_info_close_position.fee_and_reward).total_value;
+        //                 position_ctx.fee_and_reward_value_latest = final_fee_and_reward_value_when_close;
+
+
+        //                 let current_pair_profit = ctx.current_pair_profit;
+        //                 let pair_value_initial = d(0);
+        //                 if (ctx.buy_with_pos) {
+        //                     pair_value_initial = ctx.buy_position_ctx.liquidity_value_open;
+        //                 } else {
+        //                     pair_value_initial = ctx.sell_position_ctx.liquidity_value_open;
+        //                 }
+        //                 current_pair_profit.liquidity_delta = position_ctx.liquidity_value_latest.sub(pair_value_initial);
+        //                 current_pair_profit.total_gas_used = 
+        //                     ctx.buy_position_ctx.total_gas_latest.add(ctx.sell_position_ctx.total_gas_latest);
+        //                 current_pair_profit.total_gas_used_value = 
+        //                     ctx.buy_position_ctx.total_gas_value_latest.add(ctx.sell_position_ctx.total_gas_value_latest);
+        //                 current_pair_profit.total_fee_and_rwd = 
+        //                     addFeeAndReward(ctx.buy_position_ctx.fee_and_reward_latest, ctx.sell_position_ctx.fee_and_reward_latest);
+        //                 current_pair_profit.total_fee_and_rwd_value = 
+        //                     ctx.buy_position_ctx.fee_and_reward_value_latest.add(ctx.sell_position_ctx.fee_and_reward_value_latest);
+
+
+        //                 total_profit_removed = addGridTradingPairProfit(total_profit_removed, addGridTradingPairProfit(ctx.current_pair_profit, ctx.total_history_pair_profit))
+        //                 total_grid_arbitrage_removed = total_grid_arbitrage_removed.add(ctx.total_history_pair_profit.liquidity_delta);
+        //             } else {
+        //                 console.log('%s [warning] tick %d to remove is blank', date.toLocaleString(), tick);
+        //             }
+        //             grid_info_map.delete(tick);
+        //         } else {
+        //             console.log('%s [warning] tick %d to remove is not exist in grid_info_map', date.toLocaleString(), tick);
+        //         }
+        //     }
+        //     grid_to_remove.clear();
+        // }
         
-        
+
+
 
         
         
 
-        console.log('Before Grid Boundary Check: tick_of_lower_side_grid_boundary_position: %d, tick_of_upper_side_grid_boundary_position: %d, amount: %d', 
-                tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position, 
-                (tick_of_upper_side_grid_boundary_position - tick_of_lower_side_grid_boundary_position) / tick_range + 1);
+        // console.log('Before Grid Boundary Check: tick_of_lower_side_grid_boundary_position: %d, tick_of_upper_side_grid_boundary_position: %d, amount: %d', 
+        //         tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position, 
+        //         (tick_of_upper_side_grid_boundary_position - tick_of_lower_side_grid_boundary_position) / tick_range + 1);
 
         // check and extend grid range
-        if (tick_of_lower_side_position < tick_of_lower_side_grid_boundary_position) {
-            if ((tick_of_upper_side_grid_boundary_position - tick_of_lower_side_position) / tick_range <= (GRID_AMOUNT_MAX - 1)) {
-                tick_of_lower_side_grid_boundary_position = tick_of_lower_side_position;
-            } else {
-                tick_of_lower_side_grid_boundary_position = tick_of_upper_side_grid_boundary_position - tick_range * (GRID_AMOUNT_MAX - 1);
-            }
-        }
-        if (tick_of_upper_side_position > tick_of_upper_side_grid_boundary_position) {
-            if ((tick_of_upper_side_position - tick_of_lower_side_grid_boundary_position) / tick_range <= (GRID_AMOUNT_MAX - 1)) {
-                tick_of_upper_side_grid_boundary_position = tick_of_upper_side_position;
-            } else {
-                tick_of_upper_side_grid_boundary_position = tick_of_lower_side_grid_boundary_position + tick_range * (GRID_AMOUNT_MAX - 1);
-            }
-        }
+        // if (tick_of_lower_side_position < tick_of_lower_side_grid_boundary_position) {
+        //     if ((tick_of_upper_side_grid_boundary_position - tick_of_lower_side_position) / tick_range <= (GRID_AMOUNT_MAX - 1)) {
+        //         tick_of_lower_side_grid_boundary_position = tick_of_lower_side_position;
+        //     } else {
+        //         tick_of_lower_side_grid_boundary_position = tick_of_upper_side_grid_boundary_position - tick_range * (GRID_AMOUNT_MAX - 1);
+        //     }
+        // }
+        // if (tick_of_upper_side_position > tick_of_upper_side_grid_boundary_position) {
+        //     if ((tick_of_upper_side_position - tick_of_lower_side_grid_boundary_position) / tick_range <= (GRID_AMOUNT_MAX - 1)) {
+        //         tick_of_upper_side_grid_boundary_position = tick_of_upper_side_position;
+        //     } else {
+        //         tick_of_upper_side_grid_boundary_position = tick_of_lower_side_grid_boundary_position + tick_range * (GRID_AMOUNT_MAX - 1);
+        //     }
+        // }
 
-        console.log('After Grid Boundary Check: tick_of_lower_side_grid_boundary_position: %d, tick_of_upper_side_grid_boundary_position: %d, amount: %d', 
-                tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position, 
-                (tick_of_upper_side_grid_boundary_position - tick_of_lower_side_grid_boundary_position) / tick_range + 1);
+        // console.log('After Grid Boundary Check: tick_of_lower_side_grid_boundary_position: %d, tick_of_upper_side_grid_boundary_position: %d, amount: %d', 
+        //         tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position, 
+        //         (tick_of_upper_side_grid_boundary_position - tick_of_lower_side_grid_boundary_position) / tick_range + 1);
         
 
         // fulfill map
-        for (let tick = tick_of_lower_side_grid_boundary_position; tick <= tick_of_upper_side_grid_boundary_position; tick += tick_range) {
-            if(!grid_info_map.has(tick)) {
-                grid_info_map.set(tick, {
-                    tick_lower_index: tick, 
-                    tick_upper_index: tick + tick_range,
-                    grid_trading_pair_ctx: undefined
-                });
-            }
-        }
+        // for (let tick = tick_of_lower_side_grid_boundary_position; tick <= tick_of_upper_side_grid_boundary_position; tick += tick_range) {
+        //     if(!grid_info_map.has(tick)) {
+        //         grid_info_map.set(tick, {
+        //             tick_lower_index: tick, 
+        //             tick_upper_index: tick + tick_range,
+        //             grid_trading_pair_ctx: undefined
+        //         });
+        //     }
+        // }
         
         
 
@@ -2254,59 +2566,105 @@ async function main() {
 
         grid_action_ctx = [];
 
+
+
+
+        console.log('Before Grid Boundary Check: tick_of_lower_side_grid_boundary_position: %d, tick_of_upper_side_grid_boundary_position: %d, amount: %d', 
+                tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position, 
+                (tick_of_upper_side_grid_boundary_position - tick_of_lower_side_grid_boundary_position) / tick_range + 1);
+
+        
+        
         if (tick_of_current_position == tick_of_previous_position) {
             console.log('tick_of_current_position(%d) == tick_of_previous_position(%d)', tick_of_current_position, tick_of_previous_position);
 
-            if (posInRange(tick_of_lower_side_position, tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position)) {
-                grid_info_lower_side_position = grid_info_map.get(tick_of_lower_side_position)!;
-
-                if (tick_of_lower_side_position != tick_of_blank_position && grid_info_lower_side_position.grid_trading_pair_ctx == undefined) {
-                    let grid_trading_pair_ctx = initGridTradingPairCtx(tick_of_current_position, tick_of_lower_side_position, 0, undefined); // tick_of_current_position: virtual buy pos tick
-                    grid_trading_pair_ctx.buy_position_ctx = initPositionRunningCtx(tick_of_current_position, tick_of_current_position + tick_range, grid_trading_pair_ctx.id, false, COIN_B_AMOUNT_EACH_GRID.toString());
-                    grid_trading_pair_ctx.sell_position_ctx = initPositionRunningCtx(tick_of_lower_side_position, tick_of_lower_side_position + tick_range, grid_trading_pair_ctx.id, false, COIN_B_AMOUNT_EACH_GRID.toString());
-
-                    grid_info_lower_side_position.grid_trading_pair_ctx = grid_trading_pair_ctx;
-                    grid_trading_pair_ctx_map.set(grid_trading_pair_ctx.id, grid_trading_pair_ctx);
-
-                    console.log(' = Action = OPEN_SELL_POSITION(No buy pos): tick_index: %d, pair_ctx_id: %s.', tick_of_lower_side_position, grid_trading_pair_ctx.id);
-
-                    grid_action_ctx.push({
-                        action_type: GridAction.OPEN_SELL_POSITION, 
-                        tick_lower_index: tick_of_lower_side_position,
-                        tick_upper_index: tick_of_lower_side_position + tick_range,
-                        grid_trading_pair_ctx: grid_trading_pair_ctx,
-                        cancel_out_action_idx: -1,
-                        cancel_out_action_reference_position_ctx: undefined
+            for (let tick = tick_of_lower_side_position; tick <= tick_of_upper_side_position; tick += tick_range) {
+                if(!grid_info_map.has(tick)) {
+                    grid_info_map.set(tick, {
+                        tick_lower_index: tick, 
+                        tick_upper_index: tick + tick_range,
+                        grid_trading_pair_ctx: undefined
                     });
                 }
             }
 
-            if (posInRange(tick_of_upper_side_position, tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position)) {
-                grid_info_upper_side_position = grid_info_map.get(tick_of_upper_side_position)!;
-
-                if (tick_of_upper_side_position != tick_of_blank_position && grid_info_upper_side_position.grid_trading_pair_ctx == undefined) {
-                    let grid_trading_pair_ctx = initGridTradingPairCtx(tick_of_upper_side_position, tick_of_current_position, 1, undefined); 
-                    grid_trading_pair_ctx.buy_position_ctx = initPositionRunningCtx(tick_of_upper_side_position, tick_of_upper_side_position + tick_range, grid_trading_pair_ctx.id, false, COIN_B_AMOUNT_EACH_GRID.toString());
-                    grid_trading_pair_ctx.sell_position_ctx = initPositionRunningCtx(tick_of_current_position, tick_of_current_position + tick_range, grid_trading_pair_ctx.id, false, COIN_B_AMOUNT_EACH_GRID.toString());
-
-                    grid_info_upper_side_position.grid_trading_pair_ctx = grid_trading_pair_ctx;
-                    grid_trading_pair_ctx_map.set(grid_trading_pair_ctx.id, grid_trading_pair_ctx);
-
-                    console.log(' = Action = OPEN_BUY_POSITION: tick_index: %d, pair_ctx_id: %s.', tick_of_upper_side_position, grid_trading_pair_ctx.id);
-
-                    grid_action_ctx.push({
-                        action_type: GridAction.OPEN_BUY_POSITION, 
-                        tick_lower_index: tick_of_upper_side_position,
-                        tick_upper_index: tick_of_upper_side_position + tick_range,
-                        grid_trading_pair_ctx: grid_trading_pair_ctx,
-                        cancel_out_action_idx: -1,
-                        cancel_out_action_reference_position_ctx: undefined
-                    });
-                }
+            if (tick_of_lower_side_position < tick_of_lower_side_grid_boundary_position) {
+                tick_of_lower_side_grid_boundary_position = tick_of_lower_side_position;
             }
+            if (tick_of_upper_side_position > tick_of_upper_side_grid_boundary_position) {
+                tick_of_upper_side_grid_boundary_position = tick_of_upper_side_position;
+            }
+            if ((tick_of_upper_side_grid_boundary_position - tick_of_lower_side_grid_boundary_position) / tick_range >= GRID_AMOUNT_MAX) {
+                console.log('%s [warnning] Position not change and exceed GRID_AMOUNT_MAX: %d - %d', Date.now().toLocaleString(), 
+                    tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position);
+            }
+
+            // lower side check
+            grid_info_lower_side_position = grid_info_map.get(tick_of_lower_side_position)!;
+
+            if (tick_of_lower_side_position != tick_of_blank_position && grid_info_lower_side_position.grid_trading_pair_ctx == undefined) {
+                let grid_trading_pair_ctx = initGridTradingPairCtx(tick_of_current_position, tick_of_lower_side_position, 0, undefined); // tick_of_current_position: virtual buy pos tick
+                grid_trading_pair_ctx.buy_position_ctx = initPositionRunningCtx(tick_of_current_position, tick_of_current_position + tick_range, grid_trading_pair_ctx.id, true, COIN_A_AMOUNT_EACH_GRID.toString());
+                grid_trading_pair_ctx.sell_position_ctx = initPositionRunningCtx(tick_of_lower_side_position, tick_of_lower_side_position + tick_range, grid_trading_pair_ctx.id, true, COIN_A_AMOUNT_EACH_GRID.toString());
+
+                grid_info_lower_side_position.grid_trading_pair_ctx = grid_trading_pair_ctx;
+                grid_trading_pair_ctx_map.set(grid_trading_pair_ctx.id, grid_trading_pair_ctx);
+
+                console.log(' = Action = OPEN_SELL_POSITION(No buy pos): tick_index: %d, pair_ctx_id: %s.', tick_of_lower_side_position, grid_trading_pair_ctx.id);
+
+                grid_action_ctx.push({
+                    action_type: GridAction.OPEN_SELL_POSITION, 
+                    tick_lower_index: tick_of_lower_side_position,
+                    tick_upper_index: tick_of_lower_side_position + tick_range,
+                    supposed_tick: current_tick_index,
+                    grid_trading_pair_ctx: grid_trading_pair_ctx,
+                    cancel_out_action_idx: -1,
+                    cancel_out_action_reference_position_ctx: undefined,
+                    removed: false
+                });
+            }
+
+            // upper side check
+            grid_info_upper_side_position = grid_info_map.get(tick_of_upper_side_position)!;
+
+            if (tick_of_upper_side_position != tick_of_blank_position && grid_info_upper_side_position.grid_trading_pair_ctx == undefined) {
+                let grid_trading_pair_ctx = initGridTradingPairCtx(tick_of_upper_side_position, tick_of_current_position, 1, undefined); 
+                grid_trading_pair_ctx.buy_position_ctx = initPositionRunningCtx(tick_of_upper_side_position, tick_of_upper_side_position + tick_range, grid_trading_pair_ctx.id, true, COIN_A_AMOUNT_EACH_GRID.toString());
+                grid_trading_pair_ctx.sell_position_ctx = initPositionRunningCtx(tick_of_current_position, tick_of_current_position + tick_range, grid_trading_pair_ctx.id, true, COIN_A_AMOUNT_EACH_GRID.toString());
+
+                grid_info_upper_side_position.grid_trading_pair_ctx = grid_trading_pair_ctx;
+                grid_trading_pair_ctx_map.set(grid_trading_pair_ctx.id, grid_trading_pair_ctx);
+
+                console.log(' = Action = OPEN_BUY_POSITION: tick_index: %d, pair_ctx_id: %s.', tick_of_upper_side_position, grid_trading_pair_ctx.id);
+
+                grid_action_ctx.push({
+                    action_type: GridAction.OPEN_BUY_POSITION, 
+                    tick_lower_index: tick_of_upper_side_position,
+                    tick_upper_index: tick_of_upper_side_position + tick_range,
+                    supposed_tick: current_tick_index,
+                    grid_trading_pair_ctx: grid_trading_pair_ctx,
+                    cancel_out_action_idx: -1,
+                    cancel_out_action_reference_position_ctx: undefined,
+                    removed: false
+                });
+            }
+
+
+
+
 
         } else if (tick_of_previous_position < tick_of_current_position) {
             console.log('tick_of_previous_position(%d) < tick_of_current_position(%d)', tick_of_previous_position, tick_of_current_position);
+
+            for (let tick = tick_of_previous_position - tick_range; tick <= tick_of_current_position + tick_range; tick += tick_range) {
+                if(!grid_info_map.has(tick)) {
+                    grid_info_map.set(tick, {
+                        tick_lower_index: tick, 
+                        tick_upper_index: tick + tick_range,
+                        grid_trading_pair_ctx: undefined
+                    });
+                }
+            }
 
             tick_behind_previous = tick_of_previous_position - tick_range;
             tick_previous = tick_of_previous_position;
@@ -2316,12 +2674,11 @@ async function main() {
             grid_info_behind_previous = grid_info_map.get(tick_behind_previous);
             grid_info_previous = grid_info_map.get(tick_previous);
             grid_info_current = grid_info_map.get(tick_current);
-            grid_info_ahead_current = grid_info_map.get(tick_ahead_current);
-            
+            grid_info_ahead_current = grid_info_map.get(tick_ahead_current);            
 
 
-            while (tick_previous <= tick_of_upper_side_grid_boundary_position && tick_previous < tick_of_current_position) {
-                console.log('Current Circle: BP(%d) - P(%d) - C(%d) - AC(%d)', tick_behind_previous, tick_previous, tick_current, tick_ahead_current);
+            while (tick_previous < tick_of_current_position) {
+                console.log('Current Circle: BP(%d) - P(%d) - C(%d) - AC(%d)', tick_behind_previous, tick_previous, tick_current, tick_ahead_current);                
 
                 // check pervious pos
                 if (grid_info_previous && grid_info_previous.grid_trading_pair_ctx) {
@@ -2333,9 +2690,11 @@ async function main() {
                                 action_type: GridAction.CLOSE_BUY_POSITION, 
                                 tick_lower_index: tick_previous,
                                 tick_upper_index: tick_previous + tick_range,
+                                supposed_tick: tick_current,
                                 grid_trading_pair_ctx: grid_info_previous.grid_trading_pair_ctx,
                                 cancel_out_action_idx: -1,
-                                cancel_out_action_reference_position_ctx: undefined
+                                cancel_out_action_reference_position_ctx: undefined,
+                                removed: false
                             });
 
                             console.log(' = State Change = : Buying -> BuyFinished, pair_ctx_id: %s', grid_info_previous.grid_trading_pair_ctx.id);
@@ -2346,27 +2705,25 @@ async function main() {
                             tick_of_blank_position = tick_previous;
                             console.log(' = Blank Position = : %d',tick_of_blank_position);
 
-                            if (posInRange(tick_behind_previous, tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position)) {
-                                if (grid_info_behind_previous) {
-                                    grid_info_behind_previous.grid_trading_pair_ctx = grid_info_previous.grid_trading_pair_ctx; 
+                            if (grid_info_behind_previous) {
+                                grid_info_behind_previous.grid_trading_pair_ctx = grid_info_previous.grid_trading_pair_ctx; 
 
-                                    // add buy pos to higher grid
-                                    console.log(' = Action = OPEN_SELL_POSITION: tick_index: %d, pair_ctx_id: %s.', tick_behind_previous, grid_info_behind_previous.grid_trading_pair_ctx.id);
-                                    grid_action_ctx.push({
-                                        action_type: GridAction.OPEN_SELL_POSITION, 
-                                        tick_lower_index: tick_behind_previous,
-                                        tick_upper_index: tick_behind_previous + tick_range,
-                                        grid_trading_pair_ctx: grid_info_behind_previous.grid_trading_pair_ctx,
-                                        cancel_out_action_idx: -1,
-                                        cancel_out_action_reference_position_ctx: undefined
-                                    });
-                                } else {
-                                    console.log('[ERROR] previous pos buy finished but behind previous pos is empty. pair_ctx_id: %s', grid_info_previous.grid_trading_pair_ctx.id);
-                                }
-
+                                // add buy pos to higher grid
+                                console.log(' = Action = OPEN_SELL_POSITION: tick_index: %d, pair_ctx_id: %s.', tick_behind_previous, grid_info_behind_previous.grid_trading_pair_ctx.id);
+                                grid_action_ctx.push({
+                                    action_type: GridAction.OPEN_SELL_POSITION, 
+                                    tick_lower_index: tick_behind_previous,
+                                    tick_upper_index: tick_behind_previous + tick_range,
+                                    supposed_tick: tick_current,
+                                    grid_trading_pair_ctx: grid_info_behind_previous.grid_trading_pair_ctx,
+                                    cancel_out_action_idx: -1,
+                                    cancel_out_action_reference_position_ctx: undefined,
+                                    removed: false
+                                });
                             } else {
-                                console.log('[ERROR] previous pos buy finished but behind previous pos is out of range. pair_ctx_id: %s', grid_info_previous.grid_trading_pair_ctx.id);
+                                console.log('[ERROR] previous pos buy finished but behind previous pos is empty. pair_ctx_id: %s', grid_info_previous.grid_trading_pair_ctx.id);
                             }
+
 
                             grid_info_previous.grid_trading_pair_ctx = undefined;
                             
@@ -2388,44 +2745,73 @@ async function main() {
                 }
 
                 // check current pos
-                if (posInRange(tick_current, tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position)) {
-                    if (grid_info_current && grid_info_current.grid_trading_pair_ctx) {
-                        switch(grid_info_current.grid_trading_pair_ctx.state) {
-                            case GridTradingPairState.Initial:
-                                console.log(' = State Change = : Initial -> Buying, pair_ctx_id: %s', grid_info_current.grid_trading_pair_ctx.id);
-                                grid_info_current.grid_trading_pair_ctx.state = GridTradingPairState.Buying;
-                                break;
-                            default:
-                                // invalid state
-                                break;
-                        }
+                if (grid_info_current && grid_info_current.grid_trading_pair_ctx) {
+                    switch(grid_info_current.grid_trading_pair_ctx.state) {
+                        case GridTradingPairState.Initial:
+                            console.log(' = State Change = : Initial -> Buying, pair_ctx_id: %s', grid_info_current.grid_trading_pair_ctx.id);
+                            grid_info_current.grid_trading_pair_ctx.state = GridTradingPairState.Buying;
+                            break;
+                        default:
+                            // invalid state
+                            break;
                     }
                 }
 
 
-                // check new trading pair
-                if (posInRange(tick_ahead_current, tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position)) {
-                    if (tick_ahead_current != tick_of_blank_position && grid_info_ahead_current && grid_info_ahead_current.grid_trading_pair_ctx == undefined) {
+                // update pos range boundary
+                if (tick_of_upper_side_grid_boundary_position < tick_ahead_current) {
+                    tick_of_upper_side_grid_boundary_position = tick_ahead_current;
+                }
+            
+                // remove tail pos if need
+                if ((tick_of_upper_side_grid_boundary_position - tick_of_lower_side_grid_boundary_position) / tick_range >= GRID_AMOUNT_MAX) {
+                    let tick_of_lower_side_grid_boundary_position_new = tick_of_upper_side_grid_boundary_position - tick_range * (GRID_AMOUNT_MAX - 1);
 
-                        let grid_trading_pair_ctx = initGridTradingPairCtx(tick_ahead_current, tick_current, 1, undefined); 
-                        grid_trading_pair_ctx.buy_position_ctx = initPositionRunningCtx(tick_ahead_current, tick_ahead_current + tick_range, grid_trading_pair_ctx.id, false, COIN_B_AMOUNT_EACH_GRID.toString());
-                        grid_trading_pair_ctx.sell_position_ctx = initPositionRunningCtx(tick_current, tick_current + tick_range, grid_trading_pair_ctx.id, false, COIN_B_AMOUNT_EACH_GRID.toString());
-
-
-                        grid_info_ahead_current.grid_trading_pair_ctx = grid_trading_pair_ctx;
-                        grid_trading_pair_ctx_map.set(grid_trading_pair_ctx.id, grid_trading_pair_ctx);
-
-                        console.log(' = Action = OPEN_BUY_POSITION: tick_index: %d, pair_ctx_id: %s.', tick_ahead_current, grid_trading_pair_ctx.id);
-
-                        grid_action_ctx.push({
-                            action_type: GridAction.OPEN_BUY_POSITION, 
-                            tick_lower_index: tick_ahead_current,
-                            tick_upper_index: tick_ahead_current + tick_range,
-                            grid_trading_pair_ctx: grid_trading_pair_ctx,
-                            cancel_out_action_idx: -1,
-                            cancel_out_action_reference_position_ctx: undefined
-                        });
+                    for (let tick = tick_of_lower_side_grid_boundary_position; tick < tick_of_lower_side_grid_boundary_position_new; tick += tick_range) {
+                        let grid_info = grid_info_map.get(tick);
+                        if (grid_info && grid_info.grid_trading_pair_ctx) {
+                            grid_action_ctx.push({
+                                action_type: GridAction.CLOSE_SELL_POSITION, 
+                                tick_lower_index: tick,
+                                tick_upper_index: tick + tick_range,
+                                supposed_tick: tick_current,
+                                grid_trading_pair_ctx: grid_info.grid_trading_pair_ctx,
+                                cancel_out_action_idx: -1,
+                                cancel_out_action_reference_position_ctx: undefined,
+                                removed: true
+                            });
+                            
+                        }
+                        grid_info_removed.push(grid_info);
+                        grid_info_map.delete(tick);
                     }
+                    tick_of_lower_side_grid_boundary_position = tick_of_lower_side_grid_boundary_position_new;
+                }
+
+
+                // add head pos if need
+                if (tick_ahead_current != tick_of_blank_position && grid_info_ahead_current && grid_info_ahead_current.grid_trading_pair_ctx == undefined) {
+
+                    let grid_trading_pair_ctx = initGridTradingPairCtx(tick_ahead_current, tick_current, 1, undefined); 
+                    grid_trading_pair_ctx.buy_position_ctx = initPositionRunningCtx(tick_ahead_current, tick_ahead_current + tick_range, grid_trading_pair_ctx.id, true, COIN_A_AMOUNT_EACH_GRID.toString());
+                    grid_trading_pair_ctx.sell_position_ctx = initPositionRunningCtx(tick_current, tick_current + tick_range, grid_trading_pair_ctx.id, true, COIN_A_AMOUNT_EACH_GRID.toString());
+
+
+                    grid_info_ahead_current.grid_trading_pair_ctx = grid_trading_pair_ctx;
+                    grid_trading_pair_ctx_map.set(grid_trading_pair_ctx.id, grid_trading_pair_ctx);
+
+                    console.log(' = Action = OPEN_BUY_POSITION: tick_index: %d, pair_ctx_id: %s.', tick_ahead_current, grid_trading_pair_ctx.id);
+
+                    grid_action_ctx.push({
+                        action_type: GridAction.OPEN_BUY_POSITION, 
+                        tick_lower_index: tick_ahead_current,
+                        tick_upper_index: tick_ahead_current + tick_range,
+                        supposed_tick: tick_current,
+                        grid_trading_pair_ctx: grid_trading_pair_ctx,
+                        cancel_out_action_idx: -1,
+                        cancel_out_action_reference_position_ctx: undefined,
+                        removed: false
+                    });
                 }
 
                 tick_behind_previous = tick_behind_previous + tick_range;
@@ -2439,8 +2825,21 @@ async function main() {
                 grid_info_ahead_current = grid_info_map.get(tick_ahead_current);
             }
 
+
+
+
         } else { // tick_of_current_position < tick_of_previous_position
             console.log('tick_of_current_position(%d) < tick_of_previous_position(%d)', tick_of_current_position, tick_of_previous_position);
+
+            for (let tick = tick_of_previous_position + tick_range; tick >= tick_of_current_position - tick_range; tick -= tick_range) {
+                if(!grid_info_map.has(tick)) {
+                    grid_info_map.set(tick, {
+                        tick_lower_index: tick, 
+                        tick_upper_index: tick + tick_range,
+                        grid_trading_pair_ctx: undefined
+                    });
+                }
+            }
 
             tick_behind_previous = tick_of_previous_position + tick_range;
             tick_previous = tick_of_previous_position;
@@ -2452,6 +2851,7 @@ async function main() {
             grid_info_current = grid_info_map.get(tick_current);
             grid_info_ahead_current = grid_info_map.get(tick_ahead_current);
 
+
             while (tick_previous >= tick_of_lower_side_grid_boundary_position && tick_previous > tick_of_current_position) {
 
                 console.log('Current Circle: AC(%d) - C(%d) - P(%d) - BP(%d)', tick_ahead_current, tick_current, tick_previous, tick_behind_previous);
@@ -2459,16 +2859,17 @@ async function main() {
                 if (grid_info_previous && grid_info_previous.grid_trading_pair_ctx != undefined) {
                     switch(grid_info_previous.grid_trading_pair_ctx.state) {
                         case GridTradingPairState.Selling:
-
                             console.log(' = Action = CLOSE_SELL_POSITION: tick_index: %d, pair_ctx_id: %s.', tick_previous, grid_info_previous.grid_trading_pair_ctx.id);
                             // remove sell pos
                             grid_action_ctx.push({
                                 action_type: GridAction.CLOSE_SELL_POSITION, 
                                 tick_lower_index: tick_previous,
                                 tick_upper_index: tick_previous + tick_range,
+                                supposed_tick: tick_previous,
                                 grid_trading_pair_ctx: grid_info_previous.grid_trading_pair_ctx,
                                 cancel_out_action_idx: -1,
-                                cancel_out_action_reference_position_ctx: undefined
+                                cancel_out_action_reference_position_ctx: undefined,
+                                removed: false
                             });
                             console.log(' = State Change = : Selling -> SellFinished, pair_ctx_id: %s', grid_info_previous.grid_trading_pair_ctx.id);
 
@@ -2478,31 +2879,28 @@ async function main() {
                             tick_of_blank_position = tick_previous;
                             console.log(' = Blank Position = : %d',tick_of_blank_position);
 
-                            if (posInRange(tick_behind_previous, tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position)) {
-                                if (grid_info_behind_previous) {
-                                    let grid_trading_pair_ctx = initGridTradingPairCtx(tick_behind_previous, tick_previous, 1,  grid_info_previous.grid_trading_pair_ctx); // new buy position
-                                    grid_trading_pair_ctx.buy_position_ctx = initPositionRunningCtx(tick_behind_previous, tick_behind_previous + tick_range, grid_trading_pair_ctx.id, false, COIN_B_AMOUNT_EACH_GRID.toString());
-                                    grid_trading_pair_ctx.sell_position_ctx = initPositionRunningCtx(tick_previous, tick_previous + tick_range, grid_trading_pair_ctx.id, false, COIN_B_AMOUNT_EACH_GRID.toString());
+                            if (grid_info_behind_previous) {
+                                let grid_trading_pair_ctx = initGridTradingPairCtx(tick_behind_previous, tick_previous, 1,  grid_info_previous.grid_trading_pair_ctx); // new buy position
+                                grid_trading_pair_ctx.buy_position_ctx = initPositionRunningCtx(tick_behind_previous, tick_behind_previous + tick_range, grid_trading_pair_ctx.id, true, COIN_A_AMOUNT_EACH_GRID.toString());
+                                grid_trading_pair_ctx.sell_position_ctx = initPositionRunningCtx(tick_previous, tick_previous + tick_range, grid_trading_pair_ctx.id, true, COIN_A_AMOUNT_EACH_GRID.toString());
 
-                                    grid_info_behind_previous.grid_trading_pair_ctx = grid_trading_pair_ctx; // update grid_trading_pair_ctx to new object
-                                    grid_trading_pair_ctx_map.set(grid_trading_pair_ctx.id, grid_trading_pair_ctx);
+                                grid_info_behind_previous.grid_trading_pair_ctx = grid_trading_pair_ctx; // update grid_trading_pair_ctx to new object
+                                grid_trading_pair_ctx_map.set(grid_trading_pair_ctx.id, grid_trading_pair_ctx);
 
-                                    // add buy pos to higher grid
-                                    console.log(' = Action = OPEN_BUY_POSITION: tick_index: %d, pair_ctx_id: %s.', tick_behind_previous, grid_trading_pair_ctx.id);
-                                    grid_action_ctx.push({
-                                        action_type: GridAction.OPEN_BUY_POSITION, 
-                                        tick_lower_index: tick_behind_previous,
-                                        tick_upper_index: tick_behind_previous + tick_range,
-                                        grid_trading_pair_ctx: grid_trading_pair_ctx,
-                                        cancel_out_action_idx: -1,
-                                        cancel_out_action_reference_position_ctx: undefined
-                                    });
-                                } else {
-                                    console.log('[ERROR] previous pos sell finished but behind previous pos is empty. pair_ctx_id: %s', grid_info_previous.grid_trading_pair_ctx.id);
-                                }
-
+                                // add buy pos to higher grid
+                                console.log(' = Action = OPEN_BUY_POSITION: tick_index: %d, pair_ctx_id: %s.', tick_behind_previous, grid_trading_pair_ctx.id);
+                                grid_action_ctx.push({
+                                    action_type: GridAction.OPEN_BUY_POSITION, 
+                                    tick_lower_index: tick_behind_previous,
+                                    tick_upper_index: tick_behind_previous + tick_range,
+                                    supposed_tick: tick_previous,
+                                    grid_trading_pair_ctx: grid_trading_pair_ctx,
+                                    cancel_out_action_idx: -1,
+                                    cancel_out_action_reference_position_ctx: undefined,
+                                    removed: false
+                                });
                             } else {
-                                console.log('[ERROR] previous pos sell finished but behind previous pos is out of range. pair_ctx_id: %s', grid_info_previous.grid_trading_pair_ctx.id);
+                                console.log('[ERROR] previous pos sell finished but behind previous pos is empty. pair_ctx_id: %s', grid_info_previous.grid_trading_pair_ctx.id);
                             }
 
                             grid_info_previous.grid_trading_pair_ctx = undefined;
@@ -2521,41 +2919,68 @@ async function main() {
                     }
                 }
 
-                if (posInRange(tick_current, tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position)) {
-                    if (grid_info_current && grid_info_current.grid_trading_pair_ctx) {
-                        switch(grid_info_current.grid_trading_pair_ctx.state) {
-                            case GridTradingPairState.BuyFinished:
-                                console.log(' = State Change = : BuyFinished -> Selling, pair_ctx_id: %s', grid_info_current.grid_trading_pair_ctx.id);
-                                grid_info_current.grid_trading_pair_ctx.state = GridTradingPairState.Selling;
-                                break;
-                            default:
-                                // invalid state
-                                break;
-                        }
+                if (grid_info_current && grid_info_current.grid_trading_pair_ctx) {
+                    switch(grid_info_current.grid_trading_pair_ctx.state) {
+                        case GridTradingPairState.BuyFinished:
+                            console.log(' = State Change = : BuyFinished -> Selling, pair_ctx_id: %s', grid_info_current.grid_trading_pair_ctx.id);
+                            grid_info_current.grid_trading_pair_ctx.state = GridTradingPairState.Selling;
+                            break;
+                        default:
+                            // invalid state
+                            break;
                     }
                 }
 
-                if (posInRange(tick_ahead_current, tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position)) {
-                    if (tick_ahead_current != tick_of_blank_position && grid_info_ahead_current && grid_info_ahead_current.grid_trading_pair_ctx == undefined) {
+                // update boundary
+                if (tick_ahead_current < tick_of_lower_side_grid_boundary_position) {
+                    tick_of_lower_side_grid_boundary_position = tick_ahead_current;
+                }
 
-                        let grid_trading_pair_ctx = initGridTradingPairCtx(tick_current, tick_ahead_current, 0, undefined); // tick_current_for_new_pair: virtual buy pos tick
-                        grid_trading_pair_ctx.buy_position_ctx = initPositionRunningCtx(tick_current, tick_current + tick_range, grid_trading_pair_ctx.id, false, COIN_B_AMOUNT_EACH_GRID.toString());
-                        grid_trading_pair_ctx.sell_position_ctx = initPositionRunningCtx(tick_ahead_current, tick_ahead_current + tick_range, grid_trading_pair_ctx.id, false, COIN_B_AMOUNT_EACH_GRID.toString());
+                // remove tail pos if need
+                if ((tick_of_upper_side_grid_boundary_position - tick_of_lower_side_grid_boundary_position) / tick_range >= GRID_AMOUNT_MAX) {
+                    let tick_of_upper_side_grid_boundary_position_new = tick_of_lower_side_grid_boundary_position + tick_range * (GRID_AMOUNT_MAX - 1);
 
-                        grid_info_ahead_current.grid_trading_pair_ctx = grid_trading_pair_ctx;
-                        grid_trading_pair_ctx_map.set(grid_trading_pair_ctx.id, grid_trading_pair_ctx);
-
-                        console.log(' = Action = OPEN_SELL_POSITION(No buy pos): tick_index: %d, pair_ctx_id: %s.', tick_ahead_current, grid_trading_pair_ctx.id);
-
-                        grid_action_ctx.push({
-                            action_type: GridAction.OPEN_SELL_POSITION, 
-                            tick_lower_index: tick_ahead_current,
-                            tick_upper_index: tick_ahead_current + tick_range,
-                            grid_trading_pair_ctx: grid_trading_pair_ctx,
-                            cancel_out_action_idx: -1,
-                            cancel_out_action_reference_position_ctx: undefined
-                        });
+                    for (let tick = tick_of_upper_side_grid_boundary_position; tick > tick_of_upper_side_grid_boundary_position_new; tick -= tick_range) {
+                        let grid_info = grid_info_map.get(tick);
+                        if (grid_info && grid_info.grid_trading_pair_ctx) {
+                            grid_action_ctx.push({
+                                action_type: GridAction.CLOSE_BUY_POSITION, 
+                                tick_lower_index: tick,
+                                tick_upper_index: tick + tick_range,
+                                supposed_tick: tick_previous,
+                                grid_trading_pair_ctx: grid_info.grid_trading_pair_ctx,
+                                cancel_out_action_idx: -1,
+                                cancel_out_action_reference_position_ctx: undefined,
+                                removed: true
+                            });
+                        }
+                        grid_info_removed.push(grid_info);
+                        grid_info_map.delete(tick);
                     }
+                    tick_of_upper_side_grid_boundary_position = tick_of_upper_side_grid_boundary_position_new;
+                }
+
+                // add head pos if need
+                if (tick_ahead_current != tick_of_blank_position && grid_info_ahead_current && grid_info_ahead_current.grid_trading_pair_ctx == undefined) {
+                    let grid_trading_pair_ctx = initGridTradingPairCtx(tick_current, tick_ahead_current, 0, undefined); // tick_current_for_new_pair: virtual buy pos tick
+                    grid_trading_pair_ctx.buy_position_ctx = initPositionRunningCtx(tick_current, tick_current + tick_range, grid_trading_pair_ctx.id, true, COIN_A_AMOUNT_EACH_GRID.toString());
+                    grid_trading_pair_ctx.sell_position_ctx = initPositionRunningCtx(tick_ahead_current, tick_ahead_current + tick_range, grid_trading_pair_ctx.id, true, COIN_A_AMOUNT_EACH_GRID.toString());
+
+                    grid_info_ahead_current.grid_trading_pair_ctx = grid_trading_pair_ctx;
+                    grid_trading_pair_ctx_map.set(grid_trading_pair_ctx.id, grid_trading_pair_ctx);
+
+                    console.log(' = Action = OPEN_SELL_POSITION(No buy pos): tick_index: %d, pair_ctx_id: %s.', tick_ahead_current, grid_trading_pair_ctx.id);
+
+                    grid_action_ctx.push({
+                        action_type: GridAction.OPEN_SELL_POSITION, 
+                        tick_lower_index: tick_ahead_current,
+                        tick_upper_index: tick_ahead_current + tick_range,
+                        supposed_tick: tick_previous,
+                        grid_trading_pair_ctx: grid_trading_pair_ctx,
+                        cancel_out_action_idx: -1,
+                        cancel_out_action_reference_position_ctx: undefined,
+                        removed: false
+                    });
                 }
 
                 tick_behind_previous = tick_behind_previous - tick_range;
@@ -2569,6 +2994,10 @@ async function main() {
                 grid_info_ahead_current = grid_info_map.get(tick_ahead_current);
             }
         }
+
+        console.log('After Grid Boundary Check: tick_of_lower_side_grid_boundary_position: %d, tick_of_upper_side_grid_boundary_position: %d, amount: %d', 
+                tick_of_lower_side_grid_boundary_position, tick_of_upper_side_grid_boundary_position, 
+                (tick_of_upper_side_grid_boundary_position - tick_of_lower_side_grid_boundary_position) / tick_range + 1);
 
 
 
@@ -2604,7 +3033,7 @@ async function main() {
                             grid_action_ctx[i].grid_trading_pair_ctx.id, getGridTradingPairStateStr(grid_action_ctx[i].grid_trading_pair_ctx.state));
 
                         let former_position_ctx = is_former_buy? grid_action_ctx[j].grid_trading_pair_ctx.buy_position_ctx : grid_action_ctx[j].grid_trading_pair_ctx.sell_position_ctx;
-                        let later_position_ctx = is_former_buy? grid_action_ctx[i].grid_trading_pair_ctx.buy_position_ctx : grid_action_ctx[i].grid_trading_pair_ctx.sell_position_ctx;
+                        let later_position_ctx = is_later_buy? grid_action_ctx[i].grid_trading_pair_ctx.buy_position_ctx : grid_action_ctx[i].grid_trading_pair_ctx.sell_position_ctx;
 
 
                         // former open and later close, just use theory data 
@@ -2629,17 +3058,35 @@ async function main() {
 
                             let sui_price_upper = d(1).div(TickMath.tickIndexToPrice(former_position_ctx.tick_upper_index, 6, 9));
 
-                            if (is_former_buy) {
-                                former_position_ctx.tick_index_open = former_position_ctx.tick_lower_index;
+                            let sui_price_former_open_supposed = d(1).div(TickMath.tickIndexToPrice(grid_action_ctx[j].supposed_tick, 6, 9));
+                            former_position_ctx.tick_index_open = grid_action_ctx[j].supposed_tick;
+                            if (former_position_ctx.tick_upper_index <= former_position_ctx.tick_index_open) {
+                                former_position_ctx.coin_a_amount_open = new BN(0);
+                                former_position_ctx.coin_b_amount_open = former_position_ctx.coin_b_amount_upper_est.clone();
+                                former_position_ctx.liquidity_value_open = d(former_position_ctx.coin_b_amount_upper_est.toString()).mul(Decimal.pow(10, -9)).mul(sui_price_former_open_supposed);
+                            } else if (former_position_ctx.tick_index_open <= former_position_ctx.tick_lower_index) {
                                 former_position_ctx.coin_a_amount_open = former_position_ctx.coin_a_amount_lower_est.clone();
                                 former_position_ctx.coin_b_amount_open = new BN(0);
                                 former_position_ctx.liquidity_value_open = d(former_position_ctx.coin_a_amount_lower_est.toString()).mul(Decimal.pow(10, -6));
-                            } else { // sell pos
-                                former_position_ctx.tick_index_open = former_position_ctx.tick_upper_index;
-                                former_position_ctx.coin_a_amount_open = new BN(0);
-                                former_position_ctx.coin_b_amount_open = former_position_ctx.coin_b_amount_upper_est.clone();
-                                former_position_ctx.liquidity_value_open = d(former_position_ctx.coin_b_amount_upper_est.toString()).mul(Decimal.pow(10, -9)).mul(sui_price_upper);
+                            } else {
+                                console.log('%s [warnning] there is something wrong: former lower: %d, former supposed tick:%d, former upper: %d',
+                                    former_position_ctx.tick_lower_index,
+                                    former_position_ctx.tick_index_open,
+                                    former_position_ctx.tick_upper_index
+                                );
                             }
+
+                            // if (is_former_buy) {
+                            //     former_position_ctx.tick_index_open = former_position_ctx.tick_lower_index;
+                            //     former_position_ctx.coin_a_amount_open = former_position_ctx.coin_a_amount_lower_est.clone();
+                            //     former_position_ctx.coin_b_amount_open = new BN(0);
+                            //     former_position_ctx.liquidity_value_open = d(former_position_ctx.coin_a_amount_lower_est.toString()).mul(Decimal.pow(10, -6));
+                            // } else { // sell pos
+                            //     former_position_ctx.tick_index_open = former_position_ctx.tick_upper_index;
+                            //     former_position_ctx.coin_a_amount_open = new BN(0);
+                            //     former_position_ctx.coin_b_amount_open = former_position_ctx.coin_b_amount_upper_est.clone();
+                            //     former_position_ctx.liquidity_value_open = d(former_position_ctx.coin_b_amount_upper_est.toString()).mul(Decimal.pow(10, -9)).mul(sui_price_upper);
+                            // }
 
 
                             former_position_ctx.tick_index_latest = former_position_ctx.tick_index_open;
@@ -2647,17 +3094,35 @@ async function main() {
                             former_position_ctx.coin_b_amount_latest = former_position_ctx.coin_b_amount_open.clone();
                             former_position_ctx.liquidity_value_latest = former_position_ctx.liquidity_value_open;
 
-                            if (is_later_buy) {
-                                later_position_ctx.tick_index_latest = later_position_ctx.tick_upper_index;
+                            let sui_price_later_close_supposed = d(1).div(TickMath.tickIndexToPrice(grid_action_ctx[i].supposed_tick, 6, 9));
+                            later_position_ctx.tick_index_latest = grid_action_ctx[i].supposed_tick;
+                            if (later_position_ctx.tick_upper_index <= later_position_ctx.tick_index_open) {
                                 later_position_ctx.coin_a_amount_latest = new BN(0);
                                 later_position_ctx.coin_b_amount_latest = later_position_ctx.coin_b_amount_upper_est.clone();
-                                later_position_ctx.liquidity_value_latest = d(later_position_ctx.coin_b_amount_upper_est.toString()).mul(Decimal.pow(10, -9)).mul(sui_price_upper);
-                            } else { // sell pos
-                                later_position_ctx.tick_index_latest = later_position_ctx.tick_lower_index;
+                                later_position_ctx.liquidity_value_latest = d(later_position_ctx.coin_b_amount_upper_est.toString()).mul(Decimal.pow(10, -9)).mul(sui_price_later_close_supposed);
+                            } else if (later_position_ctx.tick_index_open <= later_position_ctx.tick_lower_index) {
                                 later_position_ctx.coin_a_amount_latest = later_position_ctx.coin_a_amount_lower_est.clone();
                                 later_position_ctx.coin_b_amount_latest = new BN(0);
                                 later_position_ctx.liquidity_value_latest = d(later_position_ctx.coin_a_amount_lower_est.toString()).mul(Decimal.pow(10, -6));
+                            } else {
+                                console.log('%s [warnning] there is something wrong: later lower: %d, later supposed tick:%d, later upper: %d',
+                                    later_position_ctx.tick_lower_index,
+                                    later_position_ctx.tick_index_open,
+                                    later_position_ctx.tick_upper_index
+                                );
                             }
+
+                            // if (is_later_buy) {
+                            //     later_position_ctx.tick_index_latest = later_position_ctx.tick_upper_index;
+                            //     later_position_ctx.coin_a_amount_latest = new BN(0);
+                            //     later_position_ctx.coin_b_amount_latest = later_position_ctx.coin_b_amount_upper_est.clone();
+                            //     later_position_ctx.liquidity_value_latest = d(later_position_ctx.coin_b_amount_upper_est.toString()).mul(Decimal.pow(10, -9)).mul(sui_price_upper);
+                            // } else { // sell pos
+                            //     later_position_ctx.tick_index_latest = later_position_ctx.tick_lower_index;
+                            //     later_position_ctx.coin_a_amount_latest = later_position_ctx.coin_a_amount_lower_est.clone();
+                            //     later_position_ctx.coin_b_amount_latest = new BN(0);
+                            //     later_position_ctx.liquidity_value_latest = d(later_position_ctx.coin_a_amount_lower_est.toString()).mul(Decimal.pow(10, -6));
+                            // }
 
                             // no gas cost actually
                             former_position_ctx.total_gas_latest = new BN(0);
@@ -2672,6 +3137,30 @@ async function main() {
 
                             later_position_ctx.fee_and_reward_latest = newFeeAndReward();
                             later_position_ctx.fee_and_reward_value_latest = d(0);
+
+                            if (grid_action_ctx[i].removed) {
+                                let pair_ctx = grid_action_ctx[i].grid_trading_pair_ctx;
+                                let current_pair_profit = pair_ctx.current_pair_profit;
+                                let pair_value_initial = d(0);
+                                if (pair_ctx.buy_with_pos) {
+                                    pair_value_initial = pair_ctx.buy_position_ctx.liquidity_value_open;
+                                } else {
+                                    pair_value_initial = pair_ctx.sell_position_ctx.liquidity_value_open;
+                                }
+                                current_pair_profit.liquidity_delta = later_position_ctx.liquidity_value_latest.sub(pair_value_initial);
+                                current_pair_profit.total_gas_used = 
+                                    pair_ctx.buy_position_ctx.total_gas_latest.add(pair_ctx.sell_position_ctx.total_gas_latest);
+                                current_pair_profit.total_gas_used_value = 
+                                    pair_ctx.buy_position_ctx.total_gas_value_latest.add(pair_ctx.sell_position_ctx.total_gas_value_latest);
+                                current_pair_profit.total_fee_and_rwd = 
+                                    addFeeAndReward(pair_ctx.buy_position_ctx.fee_and_reward_latest, pair_ctx.sell_position_ctx.fee_and_reward_latest);
+                                current_pair_profit.total_fee_and_rwd_value = 
+                                    pair_ctx.buy_position_ctx.fee_and_reward_value_latest.add(pair_ctx.sell_position_ctx.fee_and_reward_value_latest);
+
+
+                                total_profit_removed = addGridTradingPairProfit(total_profit_removed, addGridTradingPairProfit(pair_ctx.current_pair_profit, pair_ctx.total_history_pair_profit))
+                                total_grid_arbitrage_removed = total_grid_arbitrage_removed.add(pair_ctx.total_history_pair_profit.liquidity_delta);
+                            }
                         }
 
 
@@ -2699,17 +3188,36 @@ async function main() {
                             let sui_price_upper = d(1).div(TickMath.tickIndexToPrice(later_position_ctx.tick_upper_index, 6, 9));
                             let liquidity_info = estLiquidityInfoByLiquidity(later_position_ctx.tick_lower_index, later_position_ctx.tick_upper_index, reference_ctx.liquidity_actual.toString())
 
-                            if (is_later_buy) {
-                                later_position_ctx.tick_index_open = later_position_ctx.tick_lower_index;
-                                later_position_ctx.coin_a_amount_open = new BN(liquidity_info.coin_a_amount_lower);
-                                later_position_ctx.coin_b_amount_open = new BN(0);
-                                later_position_ctx.liquidity_value_open = d(liquidity_info.coin_a_amount_lower).mul(Decimal.pow(10, -6));
-                            } else { // sell pos
-                                later_position_ctx.tick_index_open = later_position_ctx.tick_upper_index;
-                                later_position_ctx.coin_a_amount_open = new BN(0);
-                                later_position_ctx.coin_b_amount_open = new BN(liquidity_info.coin_b_amount_upper);
-                                later_position_ctx.liquidity_value_open = d(liquidity_info.coin_b_amount_upper).mul(Decimal.pow(10, -9)).mul(sui_price_upper);
+                            let sui_price_later_open_supposed = d(1).div(TickMath.tickIndexToPrice(grid_action_ctx[i].supposed_tick, 6, 9));
+                            later_position_ctx.tick_index_latest = grid_action_ctx[i].supposed_tick;
+                            if (later_position_ctx.tick_upper_index <= later_position_ctx.tick_index_open) {
+                                later_position_ctx.coin_a_amount_latest = new BN(0);
+                                later_position_ctx.coin_b_amount_latest = later_position_ctx.coin_b_amount_upper_est.clone();
+                                later_position_ctx.liquidity_value_latest = d(later_position_ctx.coin_b_amount_upper_est.toString()).mul(Decimal.pow(10, -9)).mul(sui_price_later_open_supposed);
+                            } else if (later_position_ctx.tick_index_open <= later_position_ctx.tick_lower_index) {
+                                later_position_ctx.coin_a_amount_latest = later_position_ctx.coin_a_amount_lower_est.clone();
+                                later_position_ctx.coin_b_amount_latest = new BN(0);
+                                later_position_ctx.liquidity_value_latest = d(later_position_ctx.coin_a_amount_lower_est.toString()).mul(Decimal.pow(10, -6));
+                            } else {
+                                console.log('%s [warnning] there is something wrong: later lower: %d, later supposed tick:%d, later upper: %d',
+                                    later_position_ctx.tick_lower_index,
+                                    later_position_ctx.tick_index_open,
+                                    later_position_ctx.tick_upper_index
+                                );
                             }
+                            
+                            
+                            // if (is_later_buy) {
+                            //     later_position_ctx.tick_index_open = later_position_ctx.tick_lower_index;
+                            //     later_position_ctx.coin_a_amount_open = new BN(liquidity_info.coin_a_amount_lower);
+                            //     later_position_ctx.coin_b_amount_open = new BN(0);
+                            //     later_position_ctx.liquidity_value_open = d(liquidity_info.coin_a_amount_lower).mul(Decimal.pow(10, -6));
+                            // } else { // sell pos
+                            //     later_position_ctx.tick_index_open = later_position_ctx.tick_upper_index;
+                            //     later_position_ctx.coin_a_amount_open = new BN(0);
+                            //     later_position_ctx.coin_b_amount_open = new BN(liquidity_info.coin_b_amount_upper);
+                            //     later_position_ctx.liquidity_value_open = d(liquidity_info.coin_b_amount_upper).mul(Decimal.pow(10, -9)).mul(sui_price_upper);
+                            // }
 
 
                             later_position_ctx.tick_index_latest = later_position_ctx.tick_index_open;
@@ -2718,17 +3226,36 @@ async function main() {
                             later_position_ctx.liquidity_value_latest = later_position_ctx.liquidity_value_open;
 
 
-                            if (is_former_buy) {
-                                former_position_ctx.tick_index_latest = former_position_ctx.tick_upper_index;
+                            let sui_price_former_close_supposed = d(1).div(TickMath.tickIndexToPrice(grid_action_ctx[j].supposed_tick, 6, 9));
+                            former_position_ctx.tick_index_latest = grid_action_ctx[j].supposed_tick;
+                            if (former_position_ctx.tick_upper_index <= former_position_ctx.tick_index_open) {
                                 former_position_ctx.coin_a_amount_latest = new BN(0);
-                                former_position_ctx.coin_b_amount_latest = new BN(liquidity_info.coin_b_amount_upper);
-                                former_position_ctx.liquidity_value_latest = d(liquidity_info.coin_b_amount_upper).mul(Decimal.pow(10, -9)).mul(sui_price_upper);
-                            } else {
-                                former_position_ctx.tick_index_latest = former_position_ctx.tick_lower_index;
-                                former_position_ctx.coin_a_amount_latest = new BN(liquidity_info.coin_a_amount_lower)
+                                former_position_ctx.coin_b_amount_latest = former_position_ctx.coin_b_amount_upper_est.clone();
+                                former_position_ctx.liquidity_value_latest = d(former_position_ctx.coin_b_amount_upper_est.toString()).mul(Decimal.pow(10, -9)).mul(sui_price_former_close_supposed);
+                            } else if (former_position_ctx.tick_index_open <= former_position_ctx.tick_lower_index) {
+                                former_position_ctx.coin_a_amount_latest = former_position_ctx.coin_a_amount_lower_est.clone();
                                 former_position_ctx.coin_b_amount_latest = new BN(0);
-                                former_position_ctx.liquidity_value_latest = d(liquidity_info.coin_a_amount_lower).mul(Decimal.pow(10, -6));
+                                former_position_ctx.liquidity_value_latest = d(former_position_ctx.coin_a_amount_lower_est.toString()).mul(Decimal.pow(10, -6));
+                            } else {
+                                console.log('%s [warnning] there is something wrong: former lower: %d, former supposed tick:%d, former upper: %d',
+                                    former_position_ctx.tick_lower_index,
+                                    former_position_ctx.tick_index_open,
+                                    former_position_ctx.tick_upper_index
+                                );
                             }
+
+
+                            // if (is_former_buy) {
+                            //     former_position_ctx.tick_index_latest = former_position_ctx.tick_upper_index;
+                            //     former_position_ctx.coin_a_amount_latest = new BN(0);
+                            //     former_position_ctx.coin_b_amount_latest = new BN(liquidity_info.coin_b_amount_upper);
+                            //     former_position_ctx.liquidity_value_latest = d(liquidity_info.coin_b_amount_upper).mul(Decimal.pow(10, -9)).mul(sui_price_upper);
+                            // } else {
+                            //     former_position_ctx.tick_index_latest = former_position_ctx.tick_lower_index;
+                            //     former_position_ctx.coin_a_amount_latest = new BN(liquidity_info.coin_a_amount_lower)
+                            //     former_position_ctx.coin_b_amount_latest = new BN(0);
+                            //     former_position_ctx.liquidity_value_latest = d(liquidity_info.coin_a_amount_lower).mul(Decimal.pow(10, -6));
+                            // }
 
                             // no gas cost actually
                             former_position_ctx.total_gas_latest.iadd(new BN(0));
@@ -2927,6 +3454,7 @@ async function main() {
                             rewarder_coin_types: [],
                             collect_fee: false,
                         }
+                        console.log(add_liquidity_payload_params);
         
         
                         let tx_rsp: SuiTransactionBlockResponse | undefined = undefined;
@@ -2978,7 +3506,7 @@ async function main() {
                             get_balance_change: true,
                             get_add_liquidity_event: true,
                             get_remove_liquidity_event: false,
-                            get_fee_and_rwd: false   
+                            get_fee_and_rwd: false
                         };
                         await getTransactionInfo(digest_add_liquidity, tx_info_add_liquidity, tx_opt_add_liquidity, sendKeypair);
                         tx_info_add_liquidity.type = 'add_liquidity';                
@@ -3067,8 +3595,9 @@ async function main() {
             } else if (grid_action.action_type == GridAction.CLOSE_BUY_POSITION || grid_action.action_type == GridAction.CLOSE_SELL_POSITION) {
                 tx_info_arr = [];
                 total_gas_fee_accumulate = new BN(0);
+                let pair_ctx = grid_action.grid_trading_pair_ctx;
                 let buy_position = (grid_action.action_type == GridAction.CLOSE_BUY_POSITION);
-                let position_ctx = buy_position? grid_action.grid_trading_pair_ctx.buy_position_ctx : grid_action.grid_trading_pair_ctx.sell_position_ctx;
+                let position_ctx = buy_position? pair_ctx.buy_position_ctx : pair_ctx.sell_position_ctx;
 
                 if (grid_action.cancel_out_action_idx < 0) {                    
                     pools_close_position = null;
@@ -3097,9 +3626,9 @@ async function main() {
 
                     let pos_object_id = '';
                     if (grid_action.action_type == GridAction.CLOSE_BUY_POSITION) {
-                        pos_object_id = grid_action.grid_trading_pair_ctx.buy_position_ctx.id;
+                        pos_object_id = pair_ctx.buy_position_ctx.id;
                     } else {
-                        pos_object_id = grid_action.grid_trading_pair_ctx.sell_position_ctx.id;
+                        pos_object_id = pair_ctx.sell_position_ctx.id;
                     }
 
 
@@ -3172,7 +3701,7 @@ async function main() {
 
 
                     // position_ctx.id = tx_info_add_liquidity.liquidity_event.position;
-                    // position_ctx.pair_ctx_id = grid_action.grid_trading_pair_ctx.id;
+                    // position_ctx.pair_ctx_id = ctx.id;
                     // position_ctx.tick_lower_index = 
                     // position_ctx.tick_upper_index = 
 
@@ -3192,9 +3721,9 @@ async function main() {
                     // position_ctx.coin_b_amount_open = tx_info_add_liquidity.liquidity_event.amount_b.clone();
 
                     // let sui_price = d(1).div(TickMath.tickIndexToPrice(tick_when_add_liquidity, 6, 9));
-                    // position_ctx.liquidity_value_open = d(tx_info_add_liquidity.liquidity_event.amount_a.toString()).mul(Decimal.pow(10, -6).add(
+                    // position_ctx.liquidity_value_open = d(tx_info_add_liquidity.liquidity_event.amount_a.toString()).mul(Decimal.pow(10, -6)).add(
                     //     d(tx_info_add_liquidity.liquidity_event.amount_b.toString()).mul(Decimal.pow(10, -9)).mul(sui_price)
-                    // ));
+                    // );
 
 
                     let tick_when_add_close_liquidity = estAddCloseLiquidityTickIndex( position_ctx.tick_lower_index, position_ctx.tick_upper_index, tx_info_close_position.liquidity_event, 0);
@@ -3207,9 +3736,9 @@ async function main() {
                     position_ctx.tick_index_latest = tick_when_add_close_liquidity
                     position_ctx.coin_a_amount_latest = tx_info_close_position.liquidity_event.amount_a.clone();
                     position_ctx.coin_b_amount_latest = tx_info_close_position.liquidity_event.amount_b.clone();
-                    position_ctx.liquidity_value_latest = d(tx_info_close_position.liquidity_event.amount_a.toString()).mul(Decimal.pow(10, -6).add(
+                    position_ctx.liquidity_value_latest = d(tx_info_close_position.liquidity_event.amount_a.toString()).mul(Decimal.pow(10, -6)).add(
                         d(tx_info_close_position.liquidity_event.amount_b.toString()).mul(Decimal.pow(10, -9)).mul(sui_price)
-                    ));
+                    );
 
                     
                     position_ctx.total_gas_latest.iadd(total_gas_fee_accumulate);
@@ -3223,6 +3752,29 @@ async function main() {
                     let cetus_price = d(1).div(TickMath.tickIndexToPrice(cetus_tick_when_add_close_liquidity, 6, 9));
                     let final_fee_and_reward_value_when_close = getFeeAndRewardValue(sui_price, cetus_price, tx_info_close_position.fee_and_reward).total_value;
                     position_ctx.fee_and_reward_value_latest = final_fee_and_reward_value_when_close;
+
+                    if (grid_action.removed) {
+                        let current_pair_profit = pair_ctx.current_pair_profit;
+                        let pair_value_initial = d(0);
+                        if (pair_ctx.buy_with_pos) {
+                            pair_value_initial = pair_ctx.buy_position_ctx.liquidity_value_open;
+                        } else {
+                            pair_value_initial = pair_ctx.sell_position_ctx.liquidity_value_open;
+                        }
+                        current_pair_profit.liquidity_delta = position_ctx.liquidity_value_latest.sub(pair_value_initial);
+                        current_pair_profit.total_gas_used = 
+                            pair_ctx.buy_position_ctx.total_gas_latest.add(pair_ctx.sell_position_ctx.total_gas_latest);
+                        current_pair_profit.total_gas_used_value = 
+                            pair_ctx.buy_position_ctx.total_gas_value_latest.add(pair_ctx.sell_position_ctx.total_gas_value_latest);
+                        current_pair_profit.total_fee_and_rwd = 
+                            addFeeAndReward(pair_ctx.buy_position_ctx.fee_and_reward_latest, pair_ctx.sell_position_ctx.fee_and_reward_latest);
+                        current_pair_profit.total_fee_and_rwd_value = 
+                            pair_ctx.buy_position_ctx.fee_and_reward_value_latest.add(pair_ctx.sell_position_ctx.fee_and_reward_value_latest);
+
+
+                        total_profit_removed = addGridTradingPairProfit(total_profit_removed, addGridTradingPairProfit(pair_ctx.current_pair_profit, pair_ctx.total_history_pair_profit))
+                        total_grid_arbitrage_removed = total_grid_arbitrage_removed.add(pair_ctx.total_history_pair_profit.liquidity_delta);
+                    }
                 }
             }
         } // for (const grid_action of grid_action_ctx)
@@ -3567,9 +4119,8 @@ async function main() {
         // console.log('grid_trading_pair_ctx_map length %d, content: \n', grid_trading_pair_ctx_map.size, JSON.stringify(grid_trading_pair_ctx_map, null, 2));
         console.log('grid_trading_pair_ctx_map length %d', grid_trading_pair_ctx_map.size);
         if (grid_miner_config.dump_trading_pair != 'false') {
-            for (const pair_ctx of grid_trading_pair_ctx_map) {            
-                console.log('%s %s',pair_ctx[1].id, getGridTradingPairStateStr(pair_ctx[1].state));
-                console.log(JSON.stringify(pair_ctx[1], null, 2));
+            for (const pair_ctx of grid_trading_pair_ctx_map) {
+                dumpSDKRet2Logfile(util.format('%s %s',pair_ctx[1].id, getGridTradingPairStateStr(pair_ctx[1].state)), JSON.stringify(pair_ctx[1], null, 2));
             }
         }
         
@@ -3693,15 +4244,13 @@ async function main() {
                 );
 
 
-                total_current_pair_serial_profit.liquidity_delta = total_history_pair_profit.liquidity_delta.add(current_pair_profit.liquidity_delta);
-                total_current_pair_serial_profit.total_gas_used = total_history_pair_profit.total_gas_used.add(current_pair_profit.total_gas_used);
-                total_current_pair_serial_profit.total_gas_used_value = total_history_pair_profit.total_gas_used_value.add(current_pair_profit.total_gas_used_value);
-                total_current_pair_serial_profit.total_fee_and_rwd = addFeeAndReward(total_history_pair_profit.total_fee_and_rwd, current_pair_profit.total_fee_and_rwd);
-                total_current_pair_serial_profit.total_fee_and_rwd_value = total_history_pair_profit.total_fee_and_rwd_value.add(current_pair_profit.total_fee_and_rwd_value);
+                // total_current_pair_serial_profit.liquidity_delta = total_history_pair_profit.liquidity_delta.add(current_pair_profit.liquidity_delta);
+                // total_current_pair_serial_profit.total_gas_used = total_history_pair_profit.total_gas_used.add(current_pair_profit.total_gas_used);
+                // total_current_pair_serial_profit.total_gas_used_value = total_history_pair_profit.total_gas_used_value.add(current_pair_profit.total_gas_used_value);
+                // total_current_pair_serial_profit.total_fee_and_rwd = addFeeAndReward(total_history_pair_profit.total_fee_and_rwd, current_pair_profit.total_fee_and_rwd);
+                // total_current_pair_serial_profit.total_fee_and_rwd_value = total_history_pair_profit.total_fee_and_rwd_value.add(current_pair_profit.total_fee_and_rwd_value);
 
-
-                total_grid_arbitrage = total_grid_arbitrage.add(total_history_pair_profit.liquidity_delta);
-                
+                total_current_pair_serial_profit = addGridTradingPairProfit(total_history_pair_profit, current_pair_profit);
 
                 console.log('    - pair serial total - liquidity delta: %s (grid arbitrage: %s)', 
                     total_current_pair_serial_profit.liquidity_delta.toFixed(10),
@@ -3716,12 +4265,14 @@ async function main() {
                     total_current_pair_serial_profit.total_fee_and_rwd.rwd_owned_cetus.toString(),
                     total_current_pair_serial_profit.total_fee_and_rwd_value.toFixed(10)
                 );
+                console.log('   -------------------------------------------------    ');
 
 
+                total_grid_arbitrage = total_grid_arbitrage.add(total_history_pair_profit.liquidity_delta);
 
                 total_profit = addGridTradingPairProfit(total_profit, total_current_pair_serial_profit);
 
-                console.log('   -------------------------------------------------    ');
+                
 
             } else {
                 console.log('%s %d - %d(%s - %s) blank', active_symbol,
@@ -3731,7 +4282,26 @@ async function main() {
             }
         }
 
+        total_profit = addGridTradingPairProfit(total_profit, total_profit_removed);
+
         console.log('--------------------------------------------------------');
+
+        console.log('Utils Gas Cost: %s, Value: %s', total_util_gas_now.toString(), total_util_gas_value_now.neg());
+
+        console.log('Trading Pair Removed: liquidity delta: %s (grid arbitrage: %s) ', 
+            total_profit_removed.liquidity_delta.toFixed(10),
+            total_grid_arbitrage_removed.toFixed(10)
+        );
+        console.log('Trading Pair Removed: gas used: %s, gas value used: %s | fee usdc: %s, Fee sui: %s, rwd sui: %s, rwd cetus: %s, fee rwd value: %s', 
+            total_profit_removed.total_gas_used.toString(),
+            total_profit_removed.total_gas_used_value.neg().toFixed(10),
+            total_profit_removed.total_fee_and_rwd.fee_owned_a.toString(),
+            total_profit_removed.total_fee_and_rwd.fee_owned_b.toString(),
+            total_profit_removed.total_fee_and_rwd.rwd_owned_sui.toString(),
+            total_profit_removed.total_fee_and_rwd.rwd_owned_cetus.toString(),
+            total_profit_removed.total_fee_and_rwd_value.toFixed(10)
+        );
+
         console.log('Trading Pair Total: liquidity delta: %s (grid arbitrage: %s) ', 
             total_profit.liquidity_delta.toFixed(10),
             total_grid_arbitrage.toFixed(10)
@@ -3745,7 +4315,7 @@ async function main() {
             total_profit.total_fee_and_rwd.rwd_owned_cetus.toString(),
             total_profit.total_fee_and_rwd_value.toFixed(10)
         );
-        console.log('Utils Gas Cost: %s, Value: %s', total_util_gas_now.toString(), total_util_gas_value_now.neg());
+        
 
         console.log('--------------------------------------------------------');
         // get check_point_status
@@ -3810,6 +4380,8 @@ async function main() {
             );
         }
         console.log('--------------------------------------------------------');
+        let current_grid_amount = (tick_of_upper_side_grid_boundary_position - tick_of_lower_side_grid_boundary_position) / tick_range + 1;
+        console.log('Grid Amount Current: %d / Max %d, COIN_A_AMOUNT_EACH_GRID: %s', current_grid_amount, GRID_AMOUNT_MAX, COIN_A_AMOUNT_EACH_GRID.toString(),);
         
 
 
@@ -3820,12 +4392,5 @@ async function main() {
 }
 
 main();
-
-
-
-
-
-
-
 
 

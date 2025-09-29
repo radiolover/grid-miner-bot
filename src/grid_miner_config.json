@@ -1,5 +1,8 @@
 {
     "mode": "running",
     "close_when_sig_int": "false",
-    "dump_trading_pair": "false"
+    "dump_trading_pair": "false",
+    "grid_amount_max": "10",
+    "liquidity_in_usdc": "43000000",
+    "liquidity_in_sui": "13000000000"
 }
